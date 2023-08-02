@@ -58,6 +58,10 @@ def main(args: argparse.Namespace):
     for _ in tqdm(range(args.num_iters), desc="Profiling iterations"):
         latencies.append(run_to_completion(profile=False))
     print(f'Avg latency: {np.mean(latencies)} seconds')
+    avg_per_token_latency = np.mean(latencies) / ((args.output_len + args.input_len) * args.batch_size)
+    avg_per_output_token_latency = np.mean(latencies) / (args.output_len * args.batch_size)
+    print(f'Avg latency per token: {avg_per_token_latency * 1000} ms')
+    print(f'Avg latency per output token: {avg_per_output_token_latency * 1000} ms')
 
 
 if __name__ == '__main__':
