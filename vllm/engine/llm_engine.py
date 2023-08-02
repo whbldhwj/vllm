@@ -88,10 +88,27 @@ class LLMEngine:
         self.log_stats = log_stats
         self._verify_args()
 
-        self.tokenizer = get_tokenizer(
-            model_config.tokenizer,
-            tokenizer_mode=model_config.tokenizer_mode,
-            trust_remote_code=model_config.trust_remote_code)
+        # FIXME(jie): Temporary hack for M* models
+        #import pdb; pdb.set_trace()
+        if self.model_config.model.startswith('mstar'):
+            try:
+               from mstar import AutoTokenizer as MStarAutoTokenizer
+            except ImportError:
+                raise RuntimeError('M* package is not installed')
+            from vllm.transformers_utils.config import _DEFAULT_MSTAR_MODEL_REVISIONS
+            model = self.model_config.model
+            if model in _DEFAULT_MSTAR_MODEL_REVISIONS:
+                model_revision = _DEFAULT_MSTAR_MODEL_REVISIONS[model]
+            else:
+                raise RuntimeError(f"Model revision for {model} not defined")
+            self.tokenizer = MStarAutoTokenizer.from_pretrained(
+                model, revision=model_revision
+            )
+        else:
+            self.tokenizer = get_tokenizer(
+                model_config.tokenizer,
+                tokenizer_mode=model_config.tokenizer_mode,
+                trust_remote_code=model_config.trust_remote_code)
         self.seq_counter = Counter()
 
         # Create the parallel GPU workers.
