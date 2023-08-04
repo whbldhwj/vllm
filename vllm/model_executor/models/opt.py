@@ -142,14 +142,19 @@ class OPTDecoderLayer(nn.Module):
         cache_event: Optional[torch.cuda.Event],
     ) -> torch.Tensor:
         # Self Attention
+        torch.cuda.nvtx.range_push("ln1")
         residual = hidden_states
         # 125m, 1.7B, ..., 175B applies layer norm BEFORE attention
         if self.do_layer_norm_before:
             hidden_states = self.self_attn_layer_norm(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("attn")
         hidden_states = self.self_attn(hidden_states=hidden_states,
                                        kv_cache=kv_cache,
                                        input_metadata=input_metadata,
                                        cache_event=cache_event)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("residual+ln2")
         hidden_states = residual + hidden_states
         # 350m applies layer norm AFTER attention
         if not self.do_layer_norm_before:
@@ -160,9 +165,17 @@ class OPTDecoderLayer(nn.Module):
         # 125m, 1.7B, ..., 175B applies layer norm BEFORE attention
         if self.do_layer_norm_before:
             hidden_states = self.final_layer_norm(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("mlp1")
+        #print(hidden_states.shape)
         hidden_states, _ = self.fc1(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("act")
         hidden_states = self.activation_fn(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("mlp2")
         hidden_states, _ = self.fc2(hidden_states)
+        torch.cuda.nvtx.range_pop()
         hidden_states = residual + hidden_states
         # 350m applies layer norm AFTER attention
         if not self.do_layer_norm_before:

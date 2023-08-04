@@ -224,8 +224,8 @@ class Worker:
 
         # Optimization: Pad the input length to be a multiple of 8.
         # This is required for utilizing the Tensor Cores in NVIDIA GPUs.
-        input_tokens = _pad_to_alignment(input_tokens, multiple_of=8)
-        input_positions = _pad_to_alignment(input_positions, multiple_of=8)
+        # input_tokens = _pad_to_alignment(input_tokens, multiple_of=8)
+        # input_positions = _pad_to_alignment(input_positions, multiple_of=8)
 
         # Convert to tensors.
         tokens_tensor = torch.cuda.LongTensor(input_tokens)
@@ -290,6 +290,7 @@ class Worker:
             seq_group_metadata_list)
 
         # Execute the model.
+        torch.cuda.nvtx.range_push("token")
         output = self.model(
             input_ids=input_tokens,
             positions=input_positions,
@@ -297,6 +298,7 @@ class Worker:
             input_metadata=input_metadata,
             cache_events=cache_events,
         )
+        torch.cuda.nvtx.range_pop()
         return output
 
 

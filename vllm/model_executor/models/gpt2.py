@@ -107,9 +107,15 @@ class GPT2MLP(nn.Module):
         self.act = get_act_fn(config.activation_function)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        torch.cuda.nvtx.range_push("mlp1")
         hidden_states, _ = self.c_fc(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("act")
         hidden_states = self.act(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("mlp2")
         hidden_states, _ = self.c_proj(hidden_states)
+        torch.cuda.nvtx.range_pop()
         return hidden_states
 
 
@@ -133,20 +139,28 @@ class GPT2Block(nn.Module):
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
     ) -> torch.Tensor:
+        torch.cuda.nvtx.range_push("ln1")
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("attn")
         attn_output = self.attn(
             hidden_states=hidden_states,
             kv_cache=kv_cache,
             input_metadata=input_metadata,
             cache_event=cache_event,
         )
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("residual+ln2")
         # residual connection
         hidden_states = attn_output + residual
 
         residual = hidden_states
         hidden_states = self.ln_2(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("mlp")
         feed_forward_hidden_states = self.mlp(hidden_states)
+        torch.cuda.nvtx.range_pop()
         # residual connection
         hidden_states = residual + feed_forward_hidden_states
         return hidden_states

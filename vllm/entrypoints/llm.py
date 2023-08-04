@@ -2,6 +2,7 @@ from typing import List, Optional, Union
 
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+import torch
 
 from vllm.engine.arg_utils import EngineArgs
 from vllm.engine.llm_engine import LLMEngine
@@ -147,7 +148,9 @@ class LLM:
         # Run the engine.
         outputs: List[RequestOutput] = []
         while self.llm_engine.has_unfinished_requests():
+            torch.cuda.nvtx.range_push("engine_step")
             step_outputs = self.llm_engine.step()
+            torch.cuda.nvtx.range_pop()
             for output in step_outputs:
                 if output.finished:
                     outputs.append(output)
