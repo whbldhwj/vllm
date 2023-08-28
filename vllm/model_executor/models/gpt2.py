@@ -39,6 +39,8 @@ from vllm.model_executor.parallel_utils.tensor_parallel import (
     VocabParallelEmbedding, ColumnParallelLinear, RowParallelLinear)
 from vllm.sequence import SequenceOutputs
 
+from .triton_ops.fused_bias_residual_norm import triton_fused_bias_residual_norm
+
 KVCache = Tuple[torch.Tensor, torch.Tensor]
 
 
@@ -64,6 +66,7 @@ class GPT2Attention(nn.Module):
                                         self.hidden_size,
                                         bias=True,
                                         input_is_parallel=True,
+                                        skip_bias_add=True,
                                         perform_initialization=False)
         self.attn = PagedAttention(self.num_heads,
                                    self.head_dim,
@@ -81,8 +84,10 @@ class GPT2Attention(nn.Module):
         key_cache, value_cache = kv_cache
         attn_output = self.attn(q, k, v, key_cache, value_cache,
                                 input_metadata, cache_event)
-        attn_output, _ = self.c_proj(attn_output)
-        return attn_output
+        # attn_output, _ = self.c_proj(attn_output)
+        # return attn_output
+        attn_output, attn_bias = self.c_proj(attn_output)
+        return attn_output, attn_bias
 
 
 class GPT2MLP(nn.Module):
@@ -144,7 +149,13 @@ class GPT2Block(nn.Module):
         hidden_states = self.ln_1(hidden_states)
         torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_push("attn")
-        attn_output = self.attn(
+        # attn_output = self.attn(
+        #     hidden_states=hidden_states,
+        #     kv_cache=kv_cache,
+        #     input_metadata=input_metadata,
+        #     cache_event=cache_event,
+        # )
+        attn_output, attn_bias = self.attn(
             hidden_states=hidden_states,
             kv_cache=kv_cache,
             input_metadata=input_metadata,
@@ -152,11 +163,14 @@ class GPT2Block(nn.Module):
         )
         torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_push("residual+ln2")
-        # residual connection
-        hidden_states = attn_output + residual
 
+        # residual connection
+        hidden_states = attn_output + residual + attn_bias
         residual = hidden_states
         hidden_states = self.ln_2(hidden_states)
+        # residual, hidden_states = triton_fused_bias_residual_norm(
+        #     attn_output, residual, attn_bias, self.ln_2.weight, self.ln_2.bias)
+
         torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_push("mlp")
         feed_forward_hidden_states = self.mlp(hidden_states)
